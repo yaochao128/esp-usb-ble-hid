@@ -131,44 +131,41 @@ extern "C" void app_main(void) {
     std::this_thread::sleep_for(1s);
     auto pClients = NimBLEDevice::getConnectedClients();
     for (auto& pClient : pClients) {
-      logger.info("{}", pClient->toString());
-      // NimBLEDevice::deleteClient(pClient);
-
       if (!subscribed) {
+        logger.info("{}", pClient->toString());
         // subscribe to notifications for the HID input report
         NimBLERemoteService*        pSvc = nullptr;
-        NimBLERemoteCharacteristic* pChr = nullptr;
-        auto services = pClient->getServices(true);
         pSvc = pClient->getService(service_uuid);
+        // get all characteristics
         if (pSvc) {
           logger.info("Found HID service");
-          pChr = pSvc->getCharacteristic(input_uuid);
-        }
+          const auto& chars = pSvc->getCharacteristics(true);
+          for (auto& pChr : chars) {
+            logger.info("Characteristic: {}", pChr->getUUID().toString());
+            // if it matches the report uuid, subscribe to it
+            if (pChr->getUUID() == input_uuid) {
+              logger.info("Found HID input characteristic");
+              if (pChr->canRead()) {
+                logger.info("{} Value: {}", pChr->getUUID().toString(), pChr->readValue());
+              }
 
-        if (pChr) {
-          logger.info("Found HID input characteristic");
-          if (pChr->canRead()) {
-            logger.info("{} Value: {}", pChr->getUUID().toString(), pChr->readValue());
-          }
-
-          if (pChr->canNotify()) {
-            if (!pChr->subscribe(true, notifyCB)) {
-              pClient->disconnect();
-            } else {
-              logger.info("Subscribed to notifications");
-            }
-          } else if (pChr->canIndicate()) {
-            /** Send false as first argument to subscribe to indications instead of notifications */
-            if (!pChr->subscribe(false, notifyCB)) {
-              pClient->disconnect();
-            } else {
-              logger.info("Subscribed to notifications");
+              if (pChr->canNotify()) {
+                if (!pChr->subscribe(true, notifyCB)) {
+                  pClient->disconnect();
+                } else {
+                  logger.info("Subscribed to notifications");
+                }
+              } else if (pChr->canIndicate()) {
+                /** Send false as first argument to subscribe to indications instead of notifications */
+                if (!pChr->subscribe(false, notifyCB)) {
+                  pClient->disconnect();
+                } else {
+                  logger.info("Subscribed to notifications");
+                }
+              }
+              subscribed = true;
             }
           }
-          subscribed = true;
-        } else {
-          logger.error("Failed to find HID input characteristic");
-          subscribed = false;
         }
       }
     }

@@ -1,11 +1,18 @@
 #include <chrono>
 #include <thread>
 
+#include <driver/gpio.h>
+
+#include "color.hpp"
 #include "logger.hpp"
+#include "rmt.hpp"
 #include "task.hpp"
 
-#include "tinyusb.h"
-#include "class/hid/hid_device.h"
+extern "C" {
+#include <tinyusb.h>
+#include <class/hid/hid_device.h>
+#include <tusb.h>
+}
 
 #include "hid-rp-gamepad.hpp"
 #include "hid_service.hpp"
@@ -56,7 +63,36 @@ static const auto hid_report_descriptor = descriptor(usage_page<generic_desktop>
 
 /************* TinyUSB descriptors ****************/
 
-#define TUSB_DESC_TOTAL_LEN      (TUD_CONFIG_DESC_LEN + CFG_TUD_HID * TUD_HID_DESC_LEN)
+#define TUSB_DESC_TOTAL_LEN      (TUD_CONFIG_DESC_LEN + CFG_TUD_HID * TUD_HID_INOUT_DESC_LEN)
+static_assert(CFG_TUD_HID >= 1, "CFG_TUD_HID must be at least 1");
+
+//--------------------------------------------------------------------+
+// Device Descriptors
+//--------------------------------------------------------------------+
+static tusb_desc_device_t desc_device = {
+    .bLength = sizeof(tusb_desc_device_t),
+    .bDescriptorType = TUSB_DESC_DEVICE,
+    .bcdUSB = 0x0000,
+    // Use Interface Association Descriptor (IAD) for CDC
+    // As required by USB Specs IAD's subclass must be common class (2) and protocol must be IAD (1)
+    .bDeviceClass = TUSB_CLASS_MISC,
+    .bDeviceSubClass = MISC_SUBCLASS_COMMON,
+    .bDeviceProtocol = MISC_PROTOCOL_IAD,
+
+    .bMaxPacketSize0 = CFG_TUD_ENDPOINT0_SIZE,
+
+    .idVendor = 0x0000,
+    .idProduct = 0x000,
+    .bcdDevice = 0x0100,
+
+    // Index of manufacturer description string
+    .iManufacturer = 0x01,
+    // Index of product description string
+    .iProduct = 0x02,
+    // Index of serial number description string
+    .iSerialNumber = 0x03,
+    // Number of configurations
+    .bNumConfigurations = 0x01};
 
 // @brief String descriptor
 const char* hid_string_descriptor[5] = {
@@ -64,7 +100,7 @@ const char* hid_string_descriptor[5] = {
     (char[]){0x09, 0x04},     // 0: is supported language is English (0x0409)
     "Finger563",              // 1: Manufacturer
     "ESP USB BLE HID",        // 2: Product
-    "0001337000",             // 3: Serials, should use chip ID
+    "1337",                   // 3: Serials, should use chip ID
     "USB HID interface",      // 4: HID
 };
 
@@ -73,17 +109,22 @@ const char* hid_string_descriptor[5] = {
 // HID interface
 static const uint8_t hid_configuration_descriptor[] = {
     // Configuration number, interface count, string index, total length, attribute, power in mA
-    TUD_CONFIG_DESCRIPTOR(1, 1, 0, TUSB_DESC_TOTAL_LEN, TUSB_DESC_CONFIG_ATT_REMOTE_WAKEUP, 100),
+    TUD_CONFIG_DESCRIPTOR(1, 1, 0, TUSB_DESC_TOTAL_LEN, 0x00, 100),
 
     // Interface number, string index, boot protocol, report descriptor len, EP In address, size & polling interval
-    TUD_HID_DESCRIPTOR(0, 4, false, hid_report_descriptor.size(), 0x81, 16, 10),
+    TUD_HID_INOUT_DESCRIPTOR(0, 4, false,
+                       hid_report_descriptor.size(),
+                       0x01, // out EP
+                       0x81, // in EP
+                       CFG_TUD_HID_EP_BUFSIZE,
+                       1),
 };
 
 /********* TinyUSB HID callbacks ***************/
 
 // Invoked when received GET HID REPORT DESCRIPTOR request
 // Application return pointer to descriptor, whose contents must exist long enough for transfer to complete
-uint8_t const *tud_hid_descriptor_report_cb(uint8_t instance)
+extern "C" uint8_t const *tud_hid_descriptor_report_cb(uint8_t instance)
 {
     // We use only one interface and one HID report descriptor, so we can ignore parameter 'instance'
     return hid_report_descriptor.data();
@@ -92,29 +133,35 @@ uint8_t const *tud_hid_descriptor_report_cb(uint8_t instance)
 // Invoked when received GET_REPORT control request
 // Application must fill buffer report's content and return its length.
 // Return zero will cause the stack to STALL request
-uint16_t tud_hid_get_report_cb(uint8_t instance, uint8_t report_id, hid_report_type_t report_type, uint8_t* buffer, uint16_t reqlen)
+extern "C" uint16_t tud_hid_get_report_cb(uint8_t instance, uint8_t report_id, hid_report_type_t report_type, uint8_t* buffer, uint16_t reqlen)
 {
     (void) instance;
-    (void) report_id;
     (void) report_type;
-    (void) buffer;
     (void) reqlen;
 
-    if (report_id == gamepad_input_report.ID) {
+    switch (report_type) {
+    case HID_REPORT_TYPE_INPUT: {
       const auto report_data = gamepad_input_report.get_report();
       // copy the report data (vector) into the buffer
       std::copy(report_data.begin(), report_data.end(), buffer);
       // return the size of the report
       return report_data.size();
     }
-
-    return 0;
+    default:
+      return 0;
+    }
 }
 
 // Invoked when received SET_REPORT control request or
 // received data on OUT endpoint ( Report ID = 0, Type = 0 )
-void tud_hid_set_report_cb(uint8_t instance, uint8_t report_id, hid_report_type_t report_type, uint8_t const* buffer, uint16_t bufsize)
+extern "C" void tud_hid_set_report_cb(uint8_t instance, uint8_t report_id, hid_report_type_t report_type, uint8_t const* buffer, uint16_t bufsize)
 {
+}
+
+// Invoked when sent REPORT successfully to host
+// Application can use this to send the next report
+// Note: For composite reports, report[0] is report ID
+extern "C" void tud_hid_report_complete_cb(uint8_t instance, uint8_t const *reprot, uint16_t len) {
 }
 
 /********* BLE callbacks ***************/
@@ -134,7 +181,7 @@ void notifyCB(NimBLERemoteCharacteristic* pRemoteCharacteristic, uint8_t* pData,
     // send the report via tiny usb
     if (tud_mounted()) {
       auto report = gamepad_input_report.get_report();
-      tud_hid_n_report(0, gamepad_input_report.ID, report.data(), report.size());
+      tud_hid_report(input_report_id, report.data(), report.size());
     }
 }
 
@@ -200,20 +247,110 @@ extern "C" void app_main(void) {
 
   logger.info("Bootup");
 
+  // MARK: LED initialization
+  static constexpr int led_power_pin = 38; // Neopixel power pin on QtPy ESP32s3
+  gpio_config_t power_pin_config = {
+    .pin_bit_mask = (1ULL << led_power_pin),
+    .mode = GPIO_MODE_OUTPUT,
+    .pull_up_en = GPIO_PULLUP_DISABLE,
+    .pull_down_en = GPIO_PULLDOWN_DISABLE,
+    .intr_type = GPIO_INTR_DISABLE,
+  };
+  gpio_config(&power_pin_config);
+  // turn on the power
+  gpio_set_level((gpio_num_t)led_power_pin, 1);
+
+  int led_encoder_state = 0;
+  static constexpr int WS2812_FREQ_HZ = 10000000;
+  static constexpr int MICROS_PER_SEC = 1000000;
+  auto led_encoder = std::make_unique<espp::RmtEncoder>(espp::RmtEncoder::Config{
+      // NOTE: since we're using the 10MHz RMT clock, we can use the pre-defined
+      //       ws2812_10mhz_bytes_encoder_config
+      .bytes_encoder_config = espp::RmtEncoder::ws2812_10mhz_bytes_encoder_config,
+        .encode = [&led_encoder_state](auto channel, auto *copy_encoder, auto *bytes_encoder,
+                                       const void *data, size_t data_size,
+                                       rmt_encode_state_t *ret_state) -> size_t {
+          // divide by 2 since we have both duration0 and duration1 in the reset code
+          static uint16_t reset_ticks =
+            WS2812_FREQ_HZ / MICROS_PER_SEC * 50 / 2; // reset code duration defaults to 50us
+          static rmt_symbol_word_t led_reset_code = (rmt_symbol_word_t){
+            .duration0 = reset_ticks,
+            .level0 = 0,
+            .duration1 = reset_ticks,
+            .level1 = 0,
+          };
+          rmt_encode_state_t session_state = RMT_ENCODING_RESET;
+          int state = RMT_ENCODING_RESET;
+          size_t encoded_symbols = 0;
+          switch (led_encoder_state) {
+          case 0: // send RGB data
+            encoded_symbols +=
+              bytes_encoder->encode(bytes_encoder, channel, data, data_size, &session_state);
+            if (session_state & RMT_ENCODING_COMPLETE) {
+              led_encoder_state = 1; // switch to next state when current encoding session finished
+            }
+            if (session_state & RMT_ENCODING_MEM_FULL) {
+              state |= RMT_ENCODING_MEM_FULL;
+              goto out; // yield if there's no free space for encoding artifacts
+            }
+            // fall-through
+          case 1: // send reset code
+            encoded_symbols += copy_encoder->encode(copy_encoder, channel, &led_reset_code,
+                                                    sizeof(led_reset_code), &session_state);
+            if (session_state & RMT_ENCODING_COMPLETE) {
+              led_encoder_state = RMT_ENCODING_RESET; // back to the initial encoding session
+              state |= RMT_ENCODING_COMPLETE;
+            }
+            if (session_state & RMT_ENCODING_MEM_FULL) {
+              state |= RMT_ENCODING_MEM_FULL;
+              goto out; // yield if there's no free space for encoding artifacts
+            }
+          }
+      out:
+          *ret_state = static_cast<rmt_encode_state_t>(state);
+          return encoded_symbols;
+        },
+        .del = [](auto *base_encoder) -> esp_err_t {
+          // we don't have any extra resources to free, so just return ESP_OK
+          return ESP_OK;
+        },
+        .reset = [&led_encoder_state](auto *base_encoder) -> esp_err_t {
+          // all we have is some extra state to reset
+          led_encoder_state = 0;
+          return ESP_OK;
+        },
+        });
+
+  // create the rmt object
+  espp::Rmt rmt(espp::Rmt::Config{
+      .gpio_num = 39, // Neopixel data pin on QtPy ESP32s3
+      .resolution_hz = WS2812_FREQ_HZ,
+      .log_level = espp::Logger::Verbosity::INFO,
+    });
+
+  // tell the RMT object to use the led_encoder (espp::RmtEncoder) that's
+  // defined above
+  rmt.set_encoder(std::move(led_encoder));
+
+  auto led_fn = [&rmt](const espp::Rgb &rgb) {
+    uint8_t green = std::clamp(int(rgb.g * 255), 0, 255);
+    uint8_t blue = std::clamp(int(rgb.b * 255), 0, 255);
+    uint8_t red = std::clamp(int(rgb.r * 255), 0, 255);
+    // NOTE: we only have one LED so we only need to send one set of RGB data
+    uint8_t data[3] = {red, green, blue};
+    // now we can send the data to the WS2812B LED
+    rmt.transmit(data, sizeof(data));
+  };
+
   // MARK: USB initialization
   logger.info("USB initialization");
   const tinyusb_config_t tusb_cfg = {
-    .device_descriptor = NULL,
+    .device_descriptor = &desc_device,
     .string_descriptor = hid_string_descriptor,
     .string_descriptor_count = sizeof(hid_string_descriptor) / sizeof(hid_string_descriptor[0]),
     .external_phy = false,
-#if (TUD_OPT_HIGH_SPEED)
-    .fs_configuration_descriptor = hid_configuration_descriptor, // HID configuration descriptor for full-speed and high-speed are the same
-    .hs_configuration_descriptor = hid_configuration_descriptor,
-    .qualifier_descriptor = NULL,
-#else
     .configuration_descriptor = hid_configuration_descriptor,
-#endif // TUD_OPT_HIGH_SPEED
+    .self_powered = false
   };
 
   if (tinyusb_driver_install(&tusb_cfg)) {
@@ -306,6 +443,43 @@ extern "C" void app_main(void) {
 
     if (!NimBLEDevice::getScan()->isScanning()) {
       NimBLEDevice::getScan()->start(scanTimeMs);
+    }
+
+    static int button_index = 0;
+    // if we're not subscribed, then twirl the joysticks
+    // use the button index to set the position of the right joystick
+    float angle = 2.0f * M_PI * button_index / num_buttons;
+
+    gamepad_input_report.reset();
+    // gamepad_input_report.set_hat(hat);
+    // gamepad_input_report.set_button(button_index, true);
+
+    // joystick inputs are in the range [-1, 1] float
+    gamepad_input_report.set_right_joystick(cos(angle), sin(angle));
+    gamepad_input_report.set_left_joystick(sin(angle), cos(angle));
+
+    // trigger inputs are in the range [0, 1] float
+    // gamepad_input_report.set_accelerator(std::abs(sin(angle)));
+    // gamepad_input_report.set_brake(std::abs(cos(angle)));
+
+    // static bool consumer_record = false;
+    // gamepad_input_report.set_consumer_record(consumer_record);
+    // consumer_record = !consumer_record;
+
+    button_index = (button_index % num_buttons) + 1;
+
+    // send an input report
+    auto report = gamepad_input_report.get_report();
+
+    if (tud_mounted()) {
+      bool success = tud_hid_report(input_report_id, report.data(), report.size());
+      espp::Rgb color = success ? espp::Rgb(0.0f, 1.0f, 0.0f) : espp::Rgb(1.0f, 0.0f, 0.0f);
+      // toggle the LED each send, so mod 2
+      if (button_index % 2 == 0) {
+        led_fn(color);
+      } else {
+        led_fn(espp::Rgb(0.0f, 0.0f, 0.0f));
+      }
     }
   }
 }

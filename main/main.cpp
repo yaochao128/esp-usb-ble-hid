@@ -4,6 +4,7 @@
 #include "logger.hpp"
 #include "task.hpp"
 
+#include "hid-rp-gamepad.hpp"
 #include "hid_service.hpp"
 #include <NimBLEDevice.h>
 
@@ -15,6 +16,40 @@ static NimBLEUUID service_uuid(espp::HidService::SERVICE_UUID);
 static NimBLEUUID report_map_uuid(espp::HidService::REPORT_MAP_UUID);
 static NimBLEUUID input_uuid(espp::HidService::REPORT_UUID);
 
+
+static constexpr uint8_t input_report_id = 1;
+static constexpr size_t num_buttons = 15;
+static constexpr int joystick_min = 0;
+static constexpr int joystick_max = 65535;
+static constexpr int trigger_min = 0;
+static constexpr int trigger_max = 1023;
+using GamepadInput =
+  espp::GamepadInputReport<num_buttons, std::uint16_t, std::uint16_t, joystick_min,
+                           joystick_max, trigger_min, trigger_max, input_report_id>;
+static GamepadInput gamepad_input_report;
+
+static constexpr uint8_t battery_report_id = 4;
+using BatteryReport = espp::XboxBatteryInputReport<battery_report_id>;
+static BatteryReport battery_input_report;
+
+static constexpr uint8_t led_output_report_id = 2;
+static constexpr size_t num_leds = 4;
+using GamepadLeds = espp::GamepadLedOutputReport<num_leds, led_output_report_id>;
+static GamepadLeds gamepad_leds_report;
+
+static constexpr uint8_t rumble_output_report_id = 3;
+using RumbleReport = espp::XboxRumbleOutputReport<rumble_output_report_id>;
+static RumbleReport gamepad_rumble_report;
+
+using namespace hid::page;
+using namespace hid::rdf;
+static auto raw_descriptor = descriptor(usage_page<generic_desktop>(), usage(generic_desktop::GAMEPAD),
+                                        collection::application(gamepad_input_report.get_descriptor(),
+                                                                gamepad_rumble_report.get_descriptor(),
+                                                                battery_input_report.get_descriptor(),
+                                                                gamepad_leds_report.get_descriptor()));
+
+
 /** Notification / Indication receiving handler callback */
 void notifyCB(NimBLERemoteCharacteristic* pRemoteCharacteristic, uint8_t* pData, size_t length, bool isNotify) {
     std::string str  = (isNotify == true) ? "Notification" : "Indication";
@@ -22,8 +57,11 @@ void notifyCB(NimBLERemoteCharacteristic* pRemoteCharacteristic, uint8_t* pData,
     str             += pRemoteCharacteristic->getClient()->getPeerAddress().toString();
     str             += ": Service = " + pRemoteCharacteristic->getRemoteService()->getUUID().toString();
     str             += ", Characteristic = " + pRemoteCharacteristic->getUUID().toString();
-    str             += ", Value = " + std::string((char*)pData, length);
+    // str             += ", Value = " + std::string((char*)pData, length);
     fmt::print("{}\n", str);
+    std::vector<uint8_t> data(pData, pData + length);
+    gamepad_input_report.set_data(data);
+    fmt::print("\t{}\n", gamepad_input_report);
 }
 
 class ClientCallbacks : public NimBLEClientCallbacks {
@@ -84,12 +122,6 @@ class ScanCallbacks : public NimBLEScanCallbacks {
 } scanCallbacks;
 
 extern "C" void app_main(void) {
-  static auto start = std::chrono::high_resolution_clock::now();
-  static auto elapsed = [&]() {
-    auto now = std::chrono::high_resolution_clock::now();
-    return std::chrono::duration<float>(now - start).count();
-  };
-
   espp::Logger logger({.tag = "ESP USB BLE HID", .level = espp::Logger::Verbosity::DEBUG});
 
   logger.info("Bootup");

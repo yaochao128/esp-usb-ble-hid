@@ -12,7 +12,7 @@ set(EXTRA_COMPONENT_DIRS
 
 set(
   COMPONENTS
-  "main esptool_py driver logger task hid-rp hid_service esp-nimble-cpp espcoredump task color rmt"
+  "main esptool_py driver logger task hid-rp hid_service esp-nimble-cpp espcoredump task qtpy"
   CACHE STRING
   "List of components to include"
   )

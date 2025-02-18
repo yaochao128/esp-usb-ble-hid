@@ -1,11 +1,8 @@
 #include <chrono>
 #include <thread>
 
-#include <driver/gpio.h>
-
-#include "color.hpp"
 #include "logger.hpp"
-#include "rmt.hpp"
+#include "qtpy.hpp"
 #include "task.hpp"
 
 extern "C" {
@@ -81,9 +78,9 @@ static tusb_desc_device_t desc_device = {
 
     .bMaxPacketSize0 = CFG_TUD_ENDPOINT0_SIZE,
 
-    .idVendor = 0x0000,
-    .idProduct = 0x000,
-    .bcdDevice = 0x0100,
+    .idVendor = 0x045E, // Microsoft
+    .idProduct = 0x0B13, // Xbox One Controller (model 1708)
+    .bcdDevice = 0x0100, // 1.0
 
     // Index of manufacturer description string
     .iManufacturer = 0x01,
@@ -182,6 +179,12 @@ void notifyCB(NimBLERemoteCharacteristic* pRemoteCharacteristic, uint8_t* pData,
     if (tud_mounted()) {
       auto report = gamepad_input_report.get_report();
       tud_hid_report(input_report_id, report.data(), report.size());
+      static auto &qtpy = espp::QtPy::get();
+      static bool led_on = false;
+      static auto on_color = espp::Rgb(0.0f, 0.0f, 1.0f); // use blue for BLE
+      static auto off_color = espp::Rgb(0.0f, 0.0f, 0.0f);
+      qtpy.led(led_on ? on_color : off_color);
+      led_on = !led_on;
     }
 }
 
@@ -206,6 +209,8 @@ class ClientCallbacks : public NimBLEClientCallbacks {
             return;
         } else {
             logger.info("Encryption successful!");
+            // set the connection parameters
+            NimBLEDevice::getClientByHandle(connInfo.getConnHandle())->updateConnParams(12, 12, 0, 400);
         }
     }
 } clientCallbacks;
@@ -227,6 +232,9 @@ class ScanCallbacks : public NimBLEScanCallbacks {
                 }
             }
 
+            // set the connection parameters before we connect
+            pClient->setConnectionParams(12, 12, 0, 400);
+            // and set our callbacks
             pClient->setClientCallbacks(&clientCallbacks, false);
             if (!pClient->connect(true, true, false)) { // delete attributes, async connect, no MTU exchange
                 NimBLEDevice::deleteClient(pClient);
@@ -248,99 +256,9 @@ extern "C" void app_main(void) {
   logger.info("Bootup");
 
   // MARK: LED initialization
-  static constexpr int led_power_pin = 38; // Neopixel power pin on QtPy ESP32s3
-  gpio_config_t power_pin_config = {
-    .pin_bit_mask = (1ULL << led_power_pin),
-    .mode = GPIO_MODE_OUTPUT,
-    .pull_up_en = GPIO_PULLUP_DISABLE,
-    .pull_down_en = GPIO_PULLDOWN_DISABLE,
-    .intr_type = GPIO_INTR_DISABLE,
-  };
-  gpio_config(&power_pin_config);
-  // turn on the power
-  gpio_set_level((gpio_num_t)led_power_pin, 1);
-
-  int led_encoder_state = 0;
-  static constexpr int WS2812_FREQ_HZ = 10000000;
-  static constexpr int MICROS_PER_SEC = 1000000;
-  auto led_encoder = std::make_unique<espp::RmtEncoder>(espp::RmtEncoder::Config{
-      // NOTE: since we're using the 10MHz RMT clock, we can use the pre-defined
-      //       ws2812_10mhz_bytes_encoder_config
-      .bytes_encoder_config = espp::RmtEncoder::ws2812_10mhz_bytes_encoder_config,
-        .encode = [&led_encoder_state](auto channel, auto *copy_encoder, auto *bytes_encoder,
-                                       const void *data, size_t data_size,
-                                       rmt_encode_state_t *ret_state) -> size_t {
-          // divide by 2 since we have both duration0 and duration1 in the reset code
-          static uint16_t reset_ticks =
-            WS2812_FREQ_HZ / MICROS_PER_SEC * 50 / 2; // reset code duration defaults to 50us
-          static rmt_symbol_word_t led_reset_code = (rmt_symbol_word_t){
-            .duration0 = reset_ticks,
-            .level0 = 0,
-            .duration1 = reset_ticks,
-            .level1 = 0,
-          };
-          rmt_encode_state_t session_state = RMT_ENCODING_RESET;
-          int state = RMT_ENCODING_RESET;
-          size_t encoded_symbols = 0;
-          switch (led_encoder_state) {
-          case 0: // send RGB data
-            encoded_symbols +=
-              bytes_encoder->encode(bytes_encoder, channel, data, data_size, &session_state);
-            if (session_state & RMT_ENCODING_COMPLETE) {
-              led_encoder_state = 1; // switch to next state when current encoding session finished
-            }
-            if (session_state & RMT_ENCODING_MEM_FULL) {
-              state |= RMT_ENCODING_MEM_FULL;
-              goto out; // yield if there's no free space for encoding artifacts
-            }
-            // fall-through
-          case 1: // send reset code
-            encoded_symbols += copy_encoder->encode(copy_encoder, channel, &led_reset_code,
-                                                    sizeof(led_reset_code), &session_state);
-            if (session_state & RMT_ENCODING_COMPLETE) {
-              led_encoder_state = RMT_ENCODING_RESET; // back to the initial encoding session
-              state |= RMT_ENCODING_COMPLETE;
-            }
-            if (session_state & RMT_ENCODING_MEM_FULL) {
-              state |= RMT_ENCODING_MEM_FULL;
-              goto out; // yield if there's no free space for encoding artifacts
-            }
-          }
-      out:
-          *ret_state = static_cast<rmt_encode_state_t>(state);
-          return encoded_symbols;
-        },
-        .del = [](auto *base_encoder) -> esp_err_t {
-          // we don't have any extra resources to free, so just return ESP_OK
-          return ESP_OK;
-        },
-        .reset = [&led_encoder_state](auto *base_encoder) -> esp_err_t {
-          // all we have is some extra state to reset
-          led_encoder_state = 0;
-          return ESP_OK;
-        },
-        });
-
-  // create the rmt object
-  espp::Rmt rmt(espp::Rmt::Config{
-      .gpio_num = 39, // Neopixel data pin on QtPy ESP32s3
-      .resolution_hz = WS2812_FREQ_HZ,
-      .log_level = espp::Logger::Verbosity::INFO,
-    });
-
-  // tell the RMT object to use the led_encoder (espp::RmtEncoder) that's
-  // defined above
-  rmt.set_encoder(std::move(led_encoder));
-
-  auto led_fn = [&rmt](const espp::Rgb &rgb) {
-    uint8_t green = std::clamp(int(rgb.g * 255), 0, 255);
-    uint8_t blue = std::clamp(int(rgb.b * 255), 0, 255);
-    uint8_t red = std::clamp(int(rgb.r * 255), 0, 255);
-    // NOTE: we only have one LED so we only need to send one set of RGB data
-    uint8_t data[3] = {red, green, blue};
-    // now we can send the data to the WS2812B LED
-    rmt.transmit(data, sizeof(data));
-  };
+  auto &qtpy = espp::QtPy::get();
+  qtpy.initialize_led();
+  qtpy.led(espp::Rgb(0.0f, 0.0f, 0.0f));
 
   // MARK: USB initialization
   logger.info("USB initialization");
@@ -476,9 +394,9 @@ extern "C" void app_main(void) {
       espp::Rgb color = success ? espp::Rgb(0.0f, 1.0f, 0.0f) : espp::Rgb(1.0f, 0.0f, 0.0f);
       // toggle the LED each send, so mod 2
       if (button_index % 2 == 0) {
-        led_fn(color);
+        qtpy.led(color);
       } else {
-        led_fn(espp::Rgb(0.0f, 0.0f, 0.0f));
+        qtpy.led(espp::Rgb(0.0f, 0.0f, 0.0f));
       }
     }
   }

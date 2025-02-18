@@ -39,3 +39,4 @@ See the Getting Started Guide for full steps to configure and use ESP-IDF to bui
 
 ## Output
 
+![Image](https://github.com/user-attachments/assets/c6e0bed9-60e5-4ed4-9a31-0082b0b804c6)

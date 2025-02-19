@@ -2,8 +2,17 @@
 #include <thread>
 
 #include "logger.hpp"
-#include "qtpy.hpp"
 #include "task.hpp"
+
+#if CONFIG_TARGET_HARDWARE_QTPY_ESP32_S3
+#include "qtpy.hpp"
+using Bsp = espp::QtPy;
+#elif CONFIG_TARGET_HARDWARE_T3_DONGLE
+#include "t-dongle-s3.hpp"
+using Bsp = espp::TDongleS3;
+#else
+#error "No hardware target specified"
+#endif
 
 extern "C" {
 #include <tinyusb.h>
@@ -179,11 +188,11 @@ void notifyCB(NimBLERemoteCharacteristic* pRemoteCharacteristic, uint8_t* pData,
     if (tud_mounted()) {
       auto report = gamepad_input_report.get_report();
       tud_hid_report(input_report_id, report.data(), report.size());
-      static auto &qtpy = espp::QtPy::get();
+      static auto &bsp = Bsp::get();
       static bool led_on = false;
       static auto on_color = espp::Rgb(0.0f, 0.0f, 1.0f); // use blue for BLE
       static auto off_color = espp::Rgb(0.0f, 0.0f, 0.0f);
-      qtpy.led(led_on ? on_color : off_color);
+      bsp.led(led_on ? on_color : off_color);
       led_on = !led_on;
     }
 }
@@ -256,9 +265,9 @@ extern "C" void app_main(void) {
   logger.info("Bootup");
 
   // MARK: LED initialization
-  auto &qtpy = espp::QtPy::get();
-  qtpy.initialize_led();
-  qtpy.led(espp::Rgb(0.0f, 0.0f, 0.0f));
+  auto &bsp = Bsp::get();
+  bsp.initialize_led();
+  bsp.led(espp::Rgb(0.0f, 0.0f, 0.0f));
 
   // MARK: USB initialization
   logger.info("USB initialization");
@@ -394,9 +403,9 @@ extern "C" void app_main(void) {
       espp::Rgb color = success ? espp::Rgb(0.0f, 1.0f, 0.0f) : espp::Rgb(1.0f, 0.0f, 0.0f);
       // toggle the LED each send, so mod 2
       if (button_index % 2 == 0) {
-        qtpy.led(color);
+        bsp.led(color);
       } else {
-        qtpy.led(espp::Rgb(0.0f, 0.0f, 0.0f));
+        bsp.led(espp::Rgb(0.0f, 0.0f, 0.0f));
       }
     }
   }

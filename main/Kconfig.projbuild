@@ -1,0 +1,17 @@
+menu "Hardware Configuration"
+    choice TARGET_HARDWARE
+        prompt "Target Hardware"
+        default TARGET_HARDWARE_T3_DONGLE
+        help
+            Select the target hardware for the example.
+
+        config TARGET_HARDWARE_T3_DONGLE
+            depends on IDF_TARGET_ESP32S3
+            bool "LilyGo T3 Dongle"
+
+        config TARGET_HARDWARE_QTPY_ESP32_S3
+            depends on IDF_TARGET_ESP32S3
+            bool "Adafruit QT Py ESP32-S3"
+
+    endchoice
+endmenu

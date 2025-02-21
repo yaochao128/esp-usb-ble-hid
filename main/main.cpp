@@ -5,13 +5,19 @@
 #include "task.hpp"
 
 #if CONFIG_TARGET_HARDWARE_QTPY_ESP32_S3
+#define HAS_DISPLAY 0
 #include "qtpy.hpp"
 using Bsp = espp::QtPy;
 #elif CONFIG_TARGET_HARDWARE_T3_DONGLE
+#define HAS_DISPLAY 1
 #include "t-dongle-s3.hpp"
 using Bsp = espp::TDongleS3;
 #else
 #error "No hardware target specified"
+#endif
+
+#if HAS_DISPLAY
+#include "gui.hpp"
 #endif
 
 extern "C" {
@@ -63,11 +69,13 @@ static constexpr uint16_t xbox_vid = 0x045E;
 static constexpr uint16_t xbox_pid = 0x0B13;
 static constexpr const char xbox_manufacturer[] = "Microsoft";
 static constexpr const char xbox_product[] = "Xbox One Controller (model 1708)";
+static constexpr const char xbox_serial[] = "000000000001";
 
 static constexpr uint16_t switch_pro_vid = 0x057E;
 static constexpr uint16_t switch_pro_pid = 0x2009;
 static constexpr const char switch_pro_manufacturer[] = "Nintendo Co., Ltd.";
 static constexpr const char switch_pro_product[] = "Pro Controller";
+static constexpr const char switch_pro_serial[] = "000000000001";
 
 //--------------------------------------------------------------------+
 // Device Descriptors
@@ -159,7 +167,19 @@ extern "C" uint16_t tud_hid_get_report_cb(uint8_t instance, uint8_t report_id,
 // received data on OUT endpoint ( Report ID = 0, Type = 0 )
 extern "C" void tud_hid_set_report_cb(uint8_t instance, uint8_t report_id,
                                       hid_report_type_t report_type, uint8_t const *buffer,
-                                      uint16_t bufsize) {}
+                                      uint16_t bufsize) {
+  std::vector<uint8_t> data(buffer, buffer + bufsize);
+  // NOTE: here is where we will need to respond to the switch for their custom
+  // communications
+  if (report_type == HID_REPORT_TYPE_OUTPUT) {
+    // if the report is for the rumble, then set the rumble
+    if (report_id == rumble_output_report_id) {
+      gamepad_rumble_report.set_data(data);
+      // fmt::print("Rumble: {}\n", gamepad_rumble_report);
+    } else {
+    }
+  }
+}
 
 // Invoked when sent REPORT successfully to host
 // Application can use this to send the next report
@@ -265,10 +285,31 @@ extern "C" void app_main(void) {
 
   logger.info("Bootup");
 
-  // MARK: LED initialization
+  // MARK: BSP initialization
   auto &bsp = Bsp::get();
+
+  // MARK: LED initialization
   bsp.initialize_led();
   bsp.led(espp::Rgb(0.0f, 0.0f, 0.0f));
+
+  // MARK: Display initialization
+#if HAS_DISPLAY
+  // initialize the LCD
+  if (!bsp.initialize_lcd()) {
+    logger.error("Failed to initialize LCD!");
+    return;
+  }
+  // set the pixel buffer to be a full screen buffer
+  static constexpr size_t pixel_buffer_size = bsp.lcd_width() * bsp.lcd_height();
+  // initialize the LVGL display for the T-Dongle-S3
+  if (!bsp.initialize_display(pixel_buffer_size)) {
+    logger.error("Failed to initialize display!");
+    return;
+  }
+
+  // initialize the gui
+  Gui gui({.log_level = espp::Logger::Verbosity::WARN});
+#endif
 
   // MARK: USB initialization
   logger.info("USB initialization");
@@ -378,20 +419,10 @@ extern "C" void app_main(void) {
     float angle = 2.0f * M_PI * button_index / num_buttons;
 
     gamepad_input_report.reset();
-    // gamepad_input_report.set_hat(hat);
-    // gamepad_input_report.set_button(button_index, true);
 
     // joystick inputs are in the range [-1, 1] float
     gamepad_input_report.set_right_joystick(cos(angle), sin(angle));
     gamepad_input_report.set_left_joystick(sin(angle), cos(angle));
-
-    // trigger inputs are in the range [0, 1] float
-    // gamepad_input_report.set_accelerator(std::abs(sin(angle)));
-    // gamepad_input_report.set_brake(std::abs(cos(angle)));
-
-    // static bool consumer_record = false;
-    // gamepad_input_report.set_consumer_record(consumer_record);
-    // consumer_record = !consumer_record;
 
     button_index = (button_index % num_buttons) + 1;
 

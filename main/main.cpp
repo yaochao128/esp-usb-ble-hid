@@ -20,7 +20,8 @@ extern "C" {
 #include <tusb.h>
 }
 
-#include "hid-rp-gamepad.hpp"
+#include "hid-rp-switch-pro.hpp"
+#include "hid-rp-xbox.hpp"
 #include "hid_service.hpp"
 #include <NimBLEDevice.h>
 
@@ -34,43 +35,39 @@ static NimBLEUUID input_uuid(espp::HidService::REPORT_UUID);
 
 /************* Gamepad Configuration ****************/
 
-static constexpr uint8_t input_report_id = 1;
-static constexpr size_t num_buttons = 15;
-static constexpr int joystick_min = 0;
-static constexpr int joystick_max = 65535;
-static constexpr int trigger_min = 0;
-static constexpr int trigger_max = 1023;
-using GamepadInput =
-    espp::GamepadInputReport<num_buttons, std::uint16_t, std::uint16_t, joystick_min, joystick_max,
-                             trigger_min, trigger_max, input_report_id>;
-static GamepadInput gamepad_input_report;
+using XboxGamepadInput = espp::XboxGamepadInputReport<>; // use the default report
+static XboxGamepadInput gamepad_input_report;
+static constexpr uint8_t input_report_id = XboxGamepadInput::ID;
+static constexpr uint8_t num_buttons = XboxGamepadInput::button_count;
 
-static constexpr uint8_t battery_report_id = 4;
-using BatteryReport = espp::XboxBatteryInputReport<battery_report_id>;
+using BatteryReport = espp::XboxBatteryInputReport<>;
 static BatteryReport battery_input_report;
+static constexpr uint8_t battery_report_id = BatteryReport::ID;
 
-static constexpr uint8_t led_output_report_id = 2;
-static constexpr size_t num_leds = 4;
-using GamepadLeds = espp::GamepadLedOutputReport<num_leds, led_output_report_id>;
-static GamepadLeds gamepad_leds_report;
-
-static constexpr uint8_t rumble_output_report_id = 3;
-using RumbleReport = espp::XboxRumbleOutputReport<rumble_output_report_id>;
+using RumbleReport = espp::XboxRumbleOutputReport<>;
 static RumbleReport gamepad_rumble_report;
+static constexpr uint8_t rumble_output_report_id = RumbleReport::ID;
 
-using namespace hid::page;
-using namespace hid::rdf;
+static const auto switch_pro_report_descriptor = espp::switch_pro_descriptor();
+static const auto xbox_report_descriptor = espp::xbox_descriptor();
+
 // @brief HID report descriptor
-static const auto hid_report_descriptor =
-    descriptor(usage_page<generic_desktop>(), usage(generic_desktop::GAMEPAD),
-               collection::application(
-                   gamepad_input_report.get_descriptor(), gamepad_rumble_report.get_descriptor(),
-                   battery_input_report.get_descriptor(), gamepad_leds_report.get_descriptor()));
+static const auto hid_report_descriptor = xbox_report_descriptor;
 
 /************* TinyUSB descriptors ****************/
 
 #define TUSB_DESC_TOTAL_LEN (TUD_CONFIG_DESC_LEN + CFG_TUD_HID * TUD_HID_INOUT_DESC_LEN)
 static_assert(CFG_TUD_HID >= 1, "CFG_TUD_HID must be at least 1");
+
+static constexpr uint16_t xbox_vid = 0x045E;
+static constexpr uint16_t xbox_pid = 0x0B13;
+static constexpr const char xbox_manufacturer[] = "Microsoft";
+static constexpr const char xbox_product[] = "Xbox One Controller (model 1708)";
+
+static constexpr uint16_t switch_pro_vid = 0x057E;
+static constexpr uint16_t switch_pro_pid = 0x2009;
+static constexpr const char switch_pro_manufacturer[] = "Nintendo Co., Ltd.";
+static constexpr const char switch_pro_product[] = "Pro Controller";
 
 //--------------------------------------------------------------------+
 // Device Descriptors

@@ -7,11 +7,22 @@ extern "C" {
 }
 
 void Gui::deinit_ui() {
+  logger_.info("Deinitializing UI");
   // delete the ui
   lv_obj_del(ui_MainScreen);
 }
 
-void Gui::init_ui() { ui_init(); }
+void Gui::init_ui() {
+  logger_.info("Initializing UI");
+  ui_init();
+
+  // make the label and center it
+  label_ = lv_label_create(lv_screen_active());
+  lv_label_set_long_mode(label_, LV_LABEL_LONG_WRAP);
+  lv_obj_align(label_, LV_ALIGN_CENTER, 0, 0);
+  lv_obj_set_style_text_align(label_, LV_TEXT_ALIGN_CENTER, 0);
+  lv_obj_set_width(label_, 150);
+}
 
 void Gui::on_value_changed(lv_event_t *e) {
   lv_obj_t *target = (lv_obj_t *)lv_event_get_target(e);

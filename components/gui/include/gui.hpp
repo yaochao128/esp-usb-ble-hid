@@ -18,6 +18,7 @@ public:
   explicit Gui(const Config &config)
       : BaseComponent("Gui", config.log_level) {
     init_ui();
+    logger_.debug("Starting task...");
     // now start the gui updater task
     task_.periodic(16 * 1000);
     using namespace std::placeholders;
@@ -36,6 +37,11 @@ public:
   void resume() {
     task_.periodic(16 * 1000);
     paused_ = false;
+  }
+
+  void set_label_text(std::string_view text) {
+    std::lock_guard<std::recursive_mutex> lk(mutex_);
+    lv_label_set_text(label_, text.data());
   }
 
 protected:
@@ -83,6 +89,8 @@ protected:
   void on_value_changed(lv_event_t *e);
   void on_key(lv_event_t *e);
   void on_scroll(lv_event_t *e);
+
+  lv_obj_t *label_{nullptr};
 
   std::atomic<bool> paused_{false};
   espp::HighResolutionTimer task_{{

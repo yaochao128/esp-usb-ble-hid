@@ -33,6 +33,8 @@ extern "C" {
 
 using namespace std::chrono_literals;
 
+std::shared_ptr<Gui> gui;
+
 static uint32_t scanTimeMs = 5000; // scan time in milliseconds, 0 = scan forever
 
 static NimBLEUUID service_uuid(espp::HidService::SERVICE_UUID);
@@ -65,14 +67,19 @@ static const auto hid_report_descriptor = xbox_report_descriptor;
 #define TUSB_DESC_TOTAL_LEN (TUD_CONFIG_DESC_LEN + CFG_TUD_HID * TUD_HID_INOUT_DESC_LEN)
 static_assert(CFG_TUD_HID >= 1, "CFG_TUD_HID must be at least 1");
 
+static constexpr uint16_t xbox_usb_bcd = 0x0200;
 static constexpr uint16_t xbox_vid = 0x045E;
-static constexpr uint16_t xbox_pid = 0x0B13;
+// static constexpr uint16_t xbox_pid = 0x0B13; // XB Wireless Controller (model 1708)
+static constexpr uint16_t xbox_pid = 0x028E; // Xbox 360 Wired
+static constexpr uint16_t xbox_bcd = 0x0110;
 static constexpr const char xbox_manufacturer[] = "Microsoft";
-static constexpr const char xbox_product[] = "Xbox One Controller (model 1708)";
-static constexpr const char xbox_serial[] = "000000000001";
+static constexpr const char xbox_product[] = "Controller";
+static constexpr const char xbox_serial[] = "";
 
+static constexpr uint16_t switch_pro_usb_bcd = 0x0200;
 static constexpr uint16_t switch_pro_vid = 0x057E;
 static constexpr uint16_t switch_pro_pid = 0x2009;
+static constexpr uint16_t switch_pro_bcd = 0x0200;
 static constexpr const char switch_pro_manufacturer[] = "Nintendo Co., Ltd.";
 static constexpr const char switch_pro_product[] = "Pro Controller";
 static constexpr const char switch_pro_serial[] = "000000000001";
@@ -80,39 +87,36 @@ static constexpr const char switch_pro_serial[] = "000000000001";
 //--------------------------------------------------------------------+
 // Device Descriptors
 //--------------------------------------------------------------------+
-static tusb_desc_device_t desc_device = {
-    .bLength = sizeof(tusb_desc_device_t),
-    .bDescriptorType = TUSB_DESC_DEVICE,
-    .bcdUSB = 0x0000,
-    // Use Interface Association Descriptor (IAD) for CDC
-    // As required by USB Specs IAD's subclass must be common class (2) and protocol must be IAD (1)
-    .bDeviceClass = TUSB_CLASS_MISC,
-    .bDeviceSubClass = MISC_SUBCLASS_COMMON,
-    .bDeviceProtocol = MISC_PROTOCOL_IAD,
+static tusb_desc_device_t desc_device = {.bLength = sizeof(tusb_desc_device_t),
+                                         .bDescriptorType = TUSB_DESC_DEVICE,
+                                         .bcdUSB = xbox_usb_bcd,
+                                         .bDeviceClass = 0,
+                                         .bDeviceSubClass = 0,
+                                         .bDeviceProtocol = 0,
 
-    .bMaxPacketSize0 = CFG_TUD_ENDPOINT0_SIZE,
+                                         .bMaxPacketSize0 = CFG_TUD_ENDPOINT0_SIZE,
 
-    .idVendor = 0x045E,  // Microsoft
-    .idProduct = 0x0B13, // Xbox One Controller (model 1708)
-    .bcdDevice = 0x0100, // 1.0
+                                         .idVendor = xbox_vid,
+                                         .idProduct = xbox_pid,
+                                         .bcdDevice = xbox_bcd,
 
-    // Index of manufacturer description string
-    .iManufacturer = 0x01,
-    // Index of product description string
-    .iProduct = 0x02,
-    // Index of serial number description string
-    .iSerialNumber = 0x03,
-    // Number of configurations
-    .bNumConfigurations = 0x01};
+                                         // Index of manufacturer description string
+                                         .iManufacturer = 0x01,
+                                         // Index of product description string
+                                         .iProduct = 0x02,
+                                         // Index of serial number description string
+                                         .iSerialNumber = 0x03,
+                                         // Number of configurations
+                                         .bNumConfigurations = 0x01};
 
 // @brief String descriptor
 const char *hid_string_descriptor[5] = {
     // array of pointer to string descriptors
     (char[]){0x09, 0x04}, // 0: is supported language is English (0x0409)
-    "Finger563",          // 1: Manufacturer
-    "ESP USB BLE HID",    // 2: Product
-    "1337",               // 3: Serials, should use chip ID
-    "USB HID interface",  // 4: HID
+    xbox_manufacturer,    // 1: Manufacturer
+    xbox_product,         // 2: Product
+    xbox_serial,          // 3: Serials
+    "USB HID Interface",  // 4: HID
 };
 
 // @brief Configuration descriptor
@@ -168,6 +172,8 @@ extern "C" uint16_t tud_hid_get_report_cb(uint8_t instance, uint8_t report_id,
 extern "C" void tud_hid_set_report_cb(uint8_t instance, uint8_t report_id,
                                       hid_report_type_t report_type, uint8_t const *buffer,
                                       uint16_t bufsize) {
+  gui->set_label_text(
+      fmt::format("Report ID: {}, Type: {}, Size: {}", report_id, (int)report_type, bufsize));
   std::vector<uint8_t> data(buffer, buffer + bufsize);
   // NOTE: here is where we will need to respond to the switch for their custom
   // communications
@@ -294,6 +300,7 @@ extern "C" void app_main(void) {
 
   // MARK: Display initialization
 #if HAS_DISPLAY
+  logger.info("Display initialization");
   // initialize the LCD
   if (!bsp.initialize_lcd()) {
     logger.error("Failed to initialize LCD!");
@@ -308,7 +315,11 @@ extern "C" void app_main(void) {
   }
 
   // initialize the gui
-  Gui gui({.log_level = espp::Logger::Verbosity::WARN});
+  logger.info("Making GUI");
+  gui = std::make_shared<Gui>(Gui::Config{.log_level = espp::Logger::Verbosity::INFO});
+  gui->set_label_text("");
+#else
+  logger.info("No display");
 #endif
 
   // MARK: USB initialization

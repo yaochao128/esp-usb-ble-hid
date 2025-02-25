@@ -11,6 +11,14 @@
 #include "bsp.hpp"
 #include "usb.hpp"
 
+// set to 1 to enable twirling the joysticks automatically (for testing) when
+// there is no BLE device connected.
+#define DEBUG_NO_BLE_TWIRL_JOYSTICKS 0
+// set to 1 to enable pushing the buttons automatically (for testing) when there
+// is no BLE device connected. Not recommended unless you want to annoy
+// yourself.
+#define DEBUG_NO_BLE_TEST_BUTTONS 0
+
 using namespace std::chrono_literals;
 
 /************* App Configuration ****************/
@@ -89,9 +97,27 @@ extern "C" void app_main(void) {
   logger.info("Making GUI");
   gui = std::make_shared<Gui>(Gui::Config{.log_level = espp::Logger::Verbosity::INFO});
   gui->set_label_text("");
-#else
+#else  // HAS_DISPLAY
   logger.info("No display");
-#endif
+#endif // HAS_DISPLAY
+
+  // MARK: BLE pairing timer (for use with button)
+  espp::HighResolutionTimer ble_pairing_timer{
+      {.name = "Pairing Timer", .callback = [&]() { start_ble_pairing_thread(notifyCB); }}};
+
+  // MARK: Pairing button initialization
+  // initialize the button, which we'll use to cycle the rotation of the display
+  logger.info("Initializing the button");
+  auto on_button_pressed = [&](const auto &event) {
+    if (event.active) {
+      // start ble pairing timer
+      ble_pairing_timer.oneshot(3'000'000); // 3 seconds
+    } else {
+      // cancel the ble pairing timer
+      ble_pairing_timer.stop();
+    }
+  };
+  bsp.initialize_button(on_button_pressed);
 
   // MARK: Gamepad initialization
   usb_gamepad = std::make_shared<SwitchPro>();
@@ -109,37 +135,45 @@ extern "C" void app_main(void) {
   init_ble();
 
   logger.info("Scanning for peripherals");
-  NimBLEUUID hid_service_uuid(espp::HidService::SERVICE_UUID);
-  NimBLEUUID report_map_uuid(espp::HidService::REPORT_MAP_UUID);
-  NimBLEUUID hid_input_uuid(espp::HidService::REPORT_UUID);
-  start_ble_scan_thread(hid_service_uuid, hid_input_uuid, notifyCB);
+  start_ble_reconnection_thread(notifyCB);
 
   // Loop here until we find a device we want to connect to
   while (true) {
     // sleep for a bit
     std::this_thread::sleep_for(1s);
 
+    // update the display if we have one
+#if HAS_DISPLAY
+    // show the usb icon if the USB is mounted
+    gui->set_usb_connected(tud_mounted());
+    // show the BLE icon if the BLE subsystem is subscribed (receiving data)
+    gui->set_ble_connected(is_ble_subscribed());
+#endif // HAS_DISPLAY
+
     // if we're subscribed, then don't do anything else
     if (is_ble_subscribed()) {
       continue;
     }
 
-    GamepadInputs inputs{};
-
+#if DEBUG_NO_BLE_TWIRL_JOYSTICKS
     // otherwise, just twirl the joysticks
     static constexpr int num_segments = 16;
     static int index = 0;
     float angle = 2.0f * M_PI * (index % num_segments) / (num_segments);
+
+    GamepadInputs inputs{};
     // joystick inputs are in the range [-1, 1] float
     inputs.left_joystick.x = sin(angle);
     inputs.left_joystick.y = cos(angle);
     inputs.right_joystick.x = cos(angle);
     inputs.right_joystick.y = sin(angle);
 
-    // // NOTE: this is commented out since it's annoying when it works, but left
-    // // in for debugging when it doesn't work.
-    // static constexpr int num_buttons = 15;
-    // inputs.set_button(index % num_buttons, true);
+#if DEBUG_NO_BLE_TEST_BUTTONS
+    // NOTE: this is not recommended since it's annoying when it works, but left
+    // in for debugging when it doesn't work.
+    static constexpr int num_buttons = 15;
+    inputs.set_button(index % num_buttons, true);
+#endif // DEBUG_NO_BLE_TEST_BUTTONS
 
     index++;
 
@@ -151,16 +185,10 @@ extern "C" void app_main(void) {
     auto report = usb_gamepad->get_report_data(usb_report_id);
 
     if (tud_mounted()) {
-      bool success = send_hid_report(usb_report_id, report);
-      espp::Rgb color = success ? espp::Rgb(0.0f, 1.0f, 0.0f) : espp::Rgb(1.0f, 0.0f, 0.0f);
-      // toggle the LED each send, so mod 2
-      if (index % 2 == 0) {
-        bsp.led(color);
-      } else {
-        bsp.led(espp::Rgb(0.0f, 0.0f, 0.0f));
-      }
+      send_hid_report(usb_report_id, report);
     } else {
       bsp.led(espp::Rgb(1.0f, 0.0f, 0.0f));
     }
+#endif // DEBUG_NO_BLE_TWIRL_JOYSTICKS
   }
 }

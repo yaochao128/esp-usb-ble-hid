@@ -15,6 +15,8 @@ the HID Host.
 
 https://github.com/user-attachments/assets/a0789d38-bd0e-4215-bf2c-ebedd9958495
 
+https://github.com/user-attachments/assets/c81b947a-24a1-4a44-b5d0-5d4c274beb93
+
 ## Cloning
 
 Since this repo contains a submodule, you need to make sure you clone it
@@ -30,6 +32,15 @@ Alternatively, you can always ensure the submodules are up to date after cloning
 ``` sh
 git submodule update --init --recursive
 ```
+
+## Configuration
+
+You can run `idf.py menuconfig` to configure the project to run on either the
+`T-Dongle-S3` or the `QtPy (ESP32 or ESP32S3)`. The configuration is under the
+`Hardware Configuration` menu from the main menu and is the `Target Hardware`
+option.
+
+![CleanShot 2025-04-10 at 07 57 26](https://github.com/user-attachments/assets/be355584-251d-4c2c-81ed-15089b45f4e1)
 
 ## Build and Flash
 

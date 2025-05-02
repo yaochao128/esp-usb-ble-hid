@@ -58,6 +58,9 @@ See the Getting Started Guide for full steps to configure and use ESP-IDF to bui
 
 ## How To Use
 
+> NOTE: you must turn on the `support wired controllers` setting on your switch
+> for the dongle (or any wired controllers for that matter) to work.
+
 The dongle can store up to 5 paired devices at a time. When it turns on / is
 plugged in it will attempt to reconnect to one of those devices. If there are no
 paired devices, then it will enter pairing mode.

@@ -17,6 +17,62 @@ https://github.com/user-attachments/assets/a0789d38-bd0e-4215-bf2c-ebedd9958495
 
 https://github.com/user-attachments/assets/c81b947a-24a1-4a44-b5d0-5d4c274beb93
 
+<!-- markdown-toc start - Don't edit this section. Run M-x markdown-toc-refresh-toc -->
+**Table of Contents**
+
+- [ESP USB BLE HID](#esp-usb-ble-hid)
+  - [Plug and Play](#plug-and-play)
+    - [Purchase Dongle](#purchase-dongle)
+    - [Program It](#program-it)
+    - [Plug it into your Switch](#plug-it-into-your-switch)
+  - [Cloning](#cloning)
+  - [Configuration](#configuration)
+  - [Build and Flash](#build-and-flash)
+  - [How To Use](#how-to-use)
+    - [Pairing Mode](#pairing-mode)
+    - [Reconnection Mode](#reconnection-mode)
+    - [Connected](#connected)
+    - [Note about system power](#note-about-system-power)
+  - [Output](#output)
+  - [Helpful Links](#helpful-links)
+
+<!-- markdown-toc end -->
+
+## Plug and Play
+
+If you just want to get a dongle and use your BLE controller with the switch,
+simply get the dongle, plug it into your computer, and run the programmer
+executable from the release.
+
+### Purchase Dongle
+
+Sources:
+- [LilyGo](https://lilygo.cc/products/t-dongle-s3?srsltid=AfmBOopsToYDfOeA4GJiUlQNNcefgA_lMLmWoF99lzdWc_j5Ysd9FUeW)
+- [Amazon](https://www.amazon.com/LILYGO-T-Dongle-S3-ESP32-S3-Development-Display/dp/B0BK9162QY)
+
+### Program It
+
+The dongle will require one-time programming to function as a BLE HID USB
+dongle.
+
+Download the release `programmer` executable from the latest [releases
+page](https://github.com/finger563/esp-usb-ble-hid/releases) for `windows`,
+`macos`, or `linux` - depending on which computer you want to use to perform the
+one-time programming.
+
+1. Download the programmer
+2. Unzip it
+3. Double click the `exe` (if windows), or open a terminal and execute it from
+   the command line `./esp-usb-ble-hid_programmer_v2.0.2_macos.bin`.
+
+### Plug it into your Switch
+
+Now that the dongle is programmed, simply plug it into your Switch and turn your
+switch on.
+  
+See the [How To Use](#how-to-use) section for information about how to pair /
+reconnect your controller to the dongle.
+
 ## Cloning
 
 Since this repo contains a submodule, you need to make sure you clone it

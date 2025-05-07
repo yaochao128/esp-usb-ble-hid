@@ -13,6 +13,9 @@ jobs:
     runs-on: ubuntu-latest
     continue-on-error: false
 
+    outputs:
+      zipfile-id: ${{ steps.zip_step.outputs.artifact-id }}
+
     steps:
     - name: Checkout repo
       uses: actions/checkout@v4
@@ -29,6 +32,7 @@ jobs:
 
     - name: Upload Build Outputs
       uses: actions/upload-artifact@v4
+      id: zip_step
       with:
         name: build-artifacts
         path: |
@@ -50,3 +54,16 @@ jobs:
           build/partition_table/partition-table.bin
           build/flasher_args.json
           build/flash_args
+
+  package:
+    name: Package the binaries into an executables for Windows, MacOS, and Linux (Ubuntu)
+    needs: build
+    strategy:
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: esp-cpp/esp-packaged-programmer-action@v1.0.0
+        with:
+          zipfile-id: ${{ needs.build.outputs.zipfile-id }}
+          programmer-name: 'esp-usb-ble-hid_programmer'

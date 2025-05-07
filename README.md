@@ -13,10 +13,6 @@ the HID Host.
 
 ![image](https://github.com/user-attachments/assets/d76558db-c34e-48d4-9771-06fa4ebdb05a)
 
-https://github.com/user-attachments/assets/a0789d38-bd0e-4215-bf2c-ebedd9958495
-
-https://github.com/user-attachments/assets/c81b947a-24a1-4a44-b5d0-5d4c274beb93
-
 <!-- markdown-toc start - Don't edit this section. Run M-x markdown-toc-refresh-toc -->
 **Table of Contents**
 
@@ -72,6 +68,11 @@ switch on.
   
 See the [How To Use](#how-to-use) section for information about how to pair /
 reconnect your controller to the dongle.
+
+https://github.com/user-attachments/assets/a0789d38-bd0e-4215-bf2c-ebedd9958495
+
+https://github.com/user-attachments/assets/c81b947a-24a1-4a44-b5d0-5d4c274beb93
+
 
 ## Cloning
 

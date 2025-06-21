@@ -129,6 +129,15 @@ bool send_hid_report(uint8_t report_id, const std::vector<uint8_t> &report) {
   return tud_hid_report(report_id, usb_hid_input_report, usb_hid_input_report_len);
 }
 
+bool send_special_key(uint8_t code) {
+  uint8_t keycodes[6] = {0};
+  keycodes[0] = code;
+  bool res = tud_hid_keyboard_report(0, 0, keycodes);
+  uint8_t empty[6] = {0};
+  tud_hid_keyboard_report(0, 0, empty);
+  return res;
+}
+
 #if DEBUG_USB
 void set_gui(std::shared_ptr<Gui> gui_ptr) { gui = gui_ptr; }
 #endif

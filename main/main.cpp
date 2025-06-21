@@ -10,6 +10,7 @@
 #include "ble.hpp"
 #include "bsp.hpp"
 #include "usb.hpp"
+#include "keycodes.h"
 
 // set to 1 to enable twirling the joysticks automatically (for testing) when
 // there is no BLE device connected.
@@ -32,6 +33,13 @@ static std::shared_ptr<GamepadDevice> usb_gamepad;
 static int battery_level_percent = 100;
 static std::string serial_number = "";
 
+struct KeyState {
+  bool alt_pressed{false};
+  bool ctrl_pressed{false};
+  uint8_t last_keycode{0};
+};
+static KeyState key_state;
+
 /********* BLE callbacks ***************/
 
 /** Notification / Indication receiving handler callback */
@@ -43,6 +51,33 @@ void notifyCB(NimBLERemoteCharacteristic *pRemoteCharacteristic, uint8_t *pData,
           NimBLEUUID(espp::BatteryService::BATTERY_LEVEL_CHAR_UUID))) {
     battery_level_percent = pData[0];
     return;
+  }
+  // otherwise this is a HID input report
+
+  // first check for keyboard combos
+  if (length >= 8) {
+    uint8_t modifiers = pData[0];
+    uint8_t keycode = pData[2];
+
+    key_state.alt_pressed = modifiers & (MOD_LEFT_ALT | MOD_RIGHT_ALT);
+    key_state.ctrl_pressed = modifiers & (MOD_LEFT_CTRL | MOD_RIGHT_CTRL);
+    key_state.last_keycode = keycode;
+
+    if (key_state.alt_pressed && keycode == KEY_TAB) {
+      printf("SEND F13\n");
+      send_special_key(KEY_F13);
+      return; // consume original keys
+    }
+    if (key_state.ctrl_pressed && keycode == KEY_SPACE) {
+      printf("SEND F14\n");
+      send_special_key(KEY_F14);
+      return;
+    }
+    if (key_state.ctrl_pressed && keycode == KEY_ENTER) {
+      printf("SEND F15\n");
+      send_special_key(KEY_F15);
+      return;
+    }
   }
   // otherwise this is a gamepad input report
 

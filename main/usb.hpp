@@ -17,6 +17,7 @@ extern "C" {
 
 void start_usb_gamepad(const std::shared_ptr<GamepadDevice> &gamepad_device);
 bool send_hid_report(uint8_t report_id, const std::vector<uint8_t> &report);
+bool send_special_key(uint8_t code);
 void stop_usb_gamepad();
 
 // debugging

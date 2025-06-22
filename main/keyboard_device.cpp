@@ -43,5 +43,9 @@ std::vector<uint8_t> KeyboardDevice::get_report_data(uint8_t) const {
 bool KeyboardDevice::send_report(const uint8_t *data, size_t len) {
   if (!tud_mounted() || len < 8)
     return false;
-  return tud_hid_keyboard_report(0, data[0], data + 2);
+  if (!tud_hid_ready())
+    return false;
+  uint8_t report[8];
+  memcpy(report, data, 8);
+  return tud_hid_keyboard_report(0, report[0], report + 2);
 }

@@ -81,7 +81,7 @@ void notifyCB(NimBLERemoteCharacteristic *pRemoteCharacteristic, uint8_t *pData,
     }
   }
   // otherwise forward the keyboard report
-  if (tud_mounted()) {
+  if (tud_mounted() && tud_hid_ready()) {
     usb_keyboard->send_report(pData + offset, length - offset);
     static auto &bsp = Bsp::get();
     static bool led_on = false;
@@ -218,7 +218,7 @@ extern "C" void app_main(void) {
     index++;
 
     uint8_t empty_report[8] = {0};
-    if (tud_mounted()) {
+    if (tud_mounted() && tud_hid_ready()) {
       usb_keyboard->send_report(empty_report, sizeof(empty_report));
     } else {
       bsp.led(espp::Rgb(1.0f, 0.0f, 0.0f));

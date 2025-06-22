@@ -131,13 +131,15 @@ bool send_hid_report(uint8_t report_id, const std::vector<uint8_t> &report) {
 }
 
 bool send_special_key(uint8_t code) {
-  if (!tud_mounted())
+  if (!tud_mounted() || !tud_hid_ready())
     return false;
   uint8_t keycodes[6] = {0};
   keycodes[0] = code;
   bool res = tud_hid_keyboard_report(0, 0, keycodes);
-  uint8_t empty[6] = {0};
-  tud_hid_keyboard_report(0, 0, empty);
+  if (res) {
+    uint8_t empty[6] = {0};
+    tud_hid_keyboard_report(0, 0, empty);
+  }
   return res;
 }
 

@@ -6,6 +6,7 @@
 #include "logger.hpp"
 
 #include "gamepad_device.hpp"
+#include "keyboard_device.hpp"
 
 #include "bsp.hpp"
 
@@ -15,9 +16,10 @@ extern "C" {
 #include <tusb.h>
 }
 
-void start_usb_gamepad(const std::shared_ptr<GamepadDevice> &gamepad_device);
+void start_usb_keyboard(const std::shared_ptr<KeyboardDevice> &keyboard_device);
 bool send_hid_report(uint8_t report_id, const std::vector<uint8_t> &report);
-void stop_usb_gamepad();
+bool send_special_key(uint8_t code);
+void stop_usb_keyboard();
 
 // debugging
 

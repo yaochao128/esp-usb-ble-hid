@@ -1,8 +1,9 @@
 #include "usb.hpp"
 #include "bsp.hpp"
+#include "keyboard_device.hpp"
 
 static espp::Logger logger({.tag = "USB"});
-static std::shared_ptr<GamepadDevice> usb_gamepad;
+static std::shared_ptr<KeyboardDevice> usb_keyboard;
 
 // DEUBGGING:
 #if DEBUG_USB
@@ -60,16 +61,16 @@ static uint8_t hid_configuration_descriptor[] = {
 
     // Interface number, string index, boot protocol, report descriptor len, EP In address, size &
     // polling interval
-    TUD_HID_INOUT_DESCRIPTOR(0, 4, HID_ITF_PROTOCOL_NONE, hid_report_descriptor.size(), 0x01, 0x81,
+    TUD_HID_INOUT_DESCRIPTOR(0, 4, HID_ITF_PROTOCOL_KEYBOARD, hid_report_descriptor.size(), 0x01, 0x81,
                              CFG_TUD_HID_EP_BUFSIZE, 1),
 };
 
-void start_usb_gamepad(const std::shared_ptr<GamepadDevice> &gamepad_device) {
-  // store the gamepad device
-  usb_gamepad = gamepad_device;
+void start_usb_keyboard(const std::shared_ptr<KeyboardDevice> &keyboard_device) {
+  // store the keyboard device
+  usb_keyboard = keyboard_device;
 
   // update the usb descriptors
-  const auto &device_info = usb_gamepad->get_device_info();
+  const auto &device_info = usb_keyboard->get_device_info();
   hid_string_descriptor[1] = device_info.manufacturer_name.c_str();
   hid_string_descriptor[2] = device_info.product_name.c_str();
   hid_string_descriptor[3] = device_info.serial_number.c_str();
@@ -79,7 +80,7 @@ void start_usb_gamepad(const std::shared_ptr<GamepadDevice> &gamepad_device) {
   desc_device.bcdUSB = device_info.usb_bcd;
 
   // update the report descriptor
-  hid_report_descriptor = usb_gamepad->get_report_descriptor();
+  hid_report_descriptor = usb_keyboard->get_report_descriptor();
 
   // update the configuration descriptor with the new report descriptor size
   uint8_t updated_hid_configuration_descriptor[] = {
@@ -88,7 +89,7 @@ void start_usb_gamepad(const std::shared_ptr<GamepadDevice> &gamepad_device) {
 
       // Interface number, string index, boot protocol, report descriptor len, EP In address, size &
       // polling interval
-      TUD_HID_INOUT_DESCRIPTOR(0, 4, HID_ITF_PROTOCOL_NONE, hid_report_descriptor.size(), 0x01,
+      TUD_HID_INOUT_DESCRIPTOR(0, 4, HID_ITF_PROTOCOL_KEYBOARD, hid_report_descriptor.size(), 0x01,
                                0x81, CFG_TUD_HID_EP_BUFSIZE, 1),
   };
   std::memcpy(hid_configuration_descriptor, updated_hid_configuration_descriptor,
@@ -110,7 +111,7 @@ void start_usb_gamepad(const std::shared_ptr<GamepadDevice> &gamepad_device) {
   logger.info("USB initialization DONE");
 }
 
-void stop_usb_gamepad() {
+void stop_usb_keyboard() {
   if (tinyusb_driver_uninstall() != ESP_OK) {
     logger.error("Failed to uninstall tinyusb driver");
     return;
@@ -129,6 +130,17 @@ bool send_hid_report(uint8_t report_id, const std::vector<uint8_t> &report) {
   return tud_hid_report(report_id, usb_hid_input_report, usb_hid_input_report_len);
 }
 
+bool send_special_key(uint8_t code) {
+  if (!tud_mounted())
+    return false;
+  uint8_t keycodes[6] = {0};
+  keycodes[0] = code;
+  bool res = tud_hid_keyboard_report(0, 0, keycodes);
+  uint8_t empty[6] = {0};
+  tud_hid_keyboard_report(0, 0, empty);
+  return res;
+}
+
 #if DEBUG_USB
 void set_gui(std::shared_ptr<Gui> gui_ptr) { gui = gui_ptr; }
 #endif
@@ -138,7 +150,7 @@ void set_gui(std::shared_ptr<Gui> gui_ptr) { gui = gui_ptr; }
 extern "C" void tud_mount_cb(void) {
   // Invoked when device is mounted
   logger.info("USB Mounted");
-  auto maybe_transmission = usb_gamepad->on_attach();
+  auto maybe_transmission = usb_keyboard->on_attach();
   if (maybe_transmission.has_value()) {
     auto &[report_id, report] = maybe_transmission.value();
     send_hid_report(report_id, report);
@@ -189,7 +201,7 @@ extern "C" void tud_hid_set_report_cb(uint8_t instance, uint8_t report_id,
     // TODO: pro controller supports feature reports
   } else if (report_type == HID_REPORT_TYPE_OUTPUT) {
     // pass the report along to the currently configured usb gamepad device
-    auto maybe_response = usb_gamepad->on_hid_report(report_id, buffer, bufsize);
+    auto maybe_response = usb_keyboard->on_hid_report(report_id, buffer, bufsize);
 #if DEBUG_USB
     std::string debug_string =
         fmt::format("In: {:02x}, {:02x}, {:02x}", buffer[0], buffer[1], buffer[2]);

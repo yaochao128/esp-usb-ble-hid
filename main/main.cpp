@@ -4,12 +4,13 @@
 #include "logger.hpp"
 #include "task.hpp"
 
-#include "switch_pro.hpp"
+#include "keyboard_device.hpp"
 #include "xbox.hpp"
 
 #include "ble.hpp"
 #include "bsp.hpp"
 #include "usb.hpp"
+#include "keycodes.h"
 
 // set to 1 to enable twirling the joysticks automatically (for testing) when
 // there is no BLE device connected.
@@ -28,9 +29,16 @@ static std::shared_ptr<Gui> gui;
 #endif
 static std::vector<uint8_t> hid_report_descriptor;
 static std::shared_ptr<GamepadDevice> ble_gamepad;
-static std::shared_ptr<GamepadDevice> usb_gamepad;
+static std::shared_ptr<KeyboardDevice> usb_keyboard;
 static int battery_level_percent = 100;
 static std::string serial_number = "";
+
+struct KeyState {
+  bool alt_pressed{false};
+  bool ctrl_pressed{false};
+  uint8_t last_keycode{0};
+};
+static KeyState key_state;
 
 /********* BLE callbacks ***************/
 
@@ -44,32 +52,37 @@ void notifyCB(NimBLERemoteCharacteristic *pRemoteCharacteristic, uint8_t *pData,
     battery_level_percent = pData[0];
     return;
   }
-  // otherwise this is a gamepad input report
+  // otherwise this is a HID input report
 
-  // set the data in the ble gamepad
-  ble_gamepad->set_report_data(ble_gamepad->get_input_report_id(), pData, length);
+  // first check for keyboard combos
+  size_t offset = (length > 8) ? 1 : 0; // handle report ID if present
+  if (length >= offset + 8) {
+    uint8_t modifiers = pData[offset];
+    uint8_t keycode = pData[offset + 2];
 
-  // convert it to GamepadInputs
-  auto inputs = ble_gamepad->get_gamepad_inputs();
+    key_state.alt_pressed = modifiers & (MOD_LEFT_ALT | MOD_RIGHT_ALT);
+    key_state.ctrl_pressed = modifiers & (MOD_LEFT_CTRL | MOD_RIGHT_CTRL);
+    key_state.last_keycode = keycode;
 
-  // invert the y-axis for the joysticks
-  inputs.left_joystick.y = -inputs.left_joystick.y;
-  inputs.right_joystick.y = -inputs.right_joystick.y;
-
-  // now set the data in the usb gamepad
-  usb_gamepad->set_gamepad_inputs(inputs);
-  usb_gamepad->set_battery_level(battery_level_percent);
-
-  // then get the output report from the usb gamepad
-  uint8_t usb_report_id = usb_gamepad->get_input_report_id();
-  auto report = usb_gamepad->get_report_data(usb_report_id);
-
-  // send the report via tiny usb
+    if (key_state.alt_pressed && keycode == KEY_TAB && tud_mounted()) {
+      printf("SEND F13\n");
+      send_special_key(KEY_F13);
+      return; // consume original keys
+    }
+    if (key_state.ctrl_pressed && keycode == KEY_SPACE && tud_mounted()) {
+      printf("SEND F14\n");
+      send_special_key(KEY_F14);
+      return;
+    }
+    if (key_state.ctrl_pressed && keycode == KEY_ENTER && tud_mounted()) {
+      printf("SEND F15\n");
+      send_special_key(KEY_F15);
+      return;
+    }
+  }
+  // otherwise forward the keyboard report
   if (tud_mounted()) {
-    // and send it over USB
-    send_hid_report(usb_report_id, report);
-
-    // toggle the LED each send, so mod 2
+    usb_keyboard->send_report(pData + offset, length - offset);
     static auto &bsp = Bsp::get();
     static bool led_on = false;
     static auto on_color = espp::Rgb(0.0f, 0.0f, 1.0f); // use blue for BLE
@@ -134,7 +147,7 @@ extern "C" void app_main(void) {
   bsp.initialize_button(on_button_pressed);
 
   // MARK: Gamepad initialization
-  usb_gamepad = std::make_shared<SwitchPro>();
+  usb_keyboard = std::make_shared<KeyboardDevice>();
   ble_gamepad = std::make_shared<Xbox>();
 
   // MARK: USB initialization
@@ -142,7 +155,7 @@ extern "C" void app_main(void) {
 #if DEBUG_USB
   set_gui(gui);
 #endif // DEBUG_USB
-  start_usb_gamepad(usb_gamepad);
+  start_usb_keyboard(usb_keyboard);
 
   // MARK: BLE initialization
   logger.info("BLE initialization");
@@ -204,15 +217,9 @@ extern "C" void app_main(void) {
 
     index++;
 
-    // set the inputs in the usb gamepad
-    usb_gamepad->set_gamepad_inputs(inputs);
-
-    // get the output report from the usb gamepad
-    uint8_t usb_report_id = usb_gamepad->get_input_report_id();
-    auto report = usb_gamepad->get_report_data(usb_report_id);
-
+    uint8_t empty_report[8] = {0};
     if (tud_mounted()) {
-      send_hid_report(usb_report_id, report);
+      usb_keyboard->send_report(empty_report, sizeof(empty_report));
     } else {
       bsp.led(espp::Rgb(1.0f, 0.0f, 0.0f));
     }
